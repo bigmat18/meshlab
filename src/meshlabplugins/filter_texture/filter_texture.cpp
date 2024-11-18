@@ -45,6 +45,7 @@ FilterTexturePlugin::FilterTexturePlugin()
 {
 	typeList = {
 		FP_VORONOI_ATLAS,
+		FP_CONJUGATE_PARAM,
 		FP_UV_WEDGE_TO_VERTEX,
 		FP_UV_VERTEX_TO_WEDGE,
 		FP_BASIC_TRIANGLE_MAPPING,
@@ -69,6 +70,7 @@ QString FilterTexturePlugin::filterName(ActionIDType filterId) const
 	switch(filterId)
 	{
 	case FP_VORONOI_ATLAS : return QString("Parametrization: Voronoi Atlas");
+	case FP_CONJUGATE_PARAM : return QString("Parametrization: Conjugate");
 	case FP_UV_WEDGE_TO_VERTEX : return QString("Convert PerWedge UV into PerVertex UV");
 	case FP_UV_VERTEX_TO_WEDGE : return QString("Convert PerVertex UV into PerWedge UV");
 	case FP_BASIC_TRIANGLE_MAPPING : return QString("Parametrization: Trivial Per-Triangle");
@@ -86,6 +88,7 @@ QString FilterTexturePlugin::pythonFilterName(ActionIDType f) const
 	switch(f)
 	{
 	case FP_VORONOI_ATLAS : return QString("generate_voronoi_atlas_parametrization");
+	case FP_CONJUGATE_PARAM : return QString("compute_texcoord_parametrization_conjugate");
 	case FP_UV_WEDGE_TO_VERTEX : return QString("compute_texcoord_transfer_wedge_to_vertex");
 	case FP_UV_VERTEX_TO_WEDGE : return QString("compute_texcoord_transfer_vertex_to_wedge");
 	case FP_BASIC_TRIANGLE_MAPPING : return QString("compute_texcoord_parametrization_triangle_trivial_per_wedge");
@@ -107,6 +110,7 @@ QString FilterTexturePlugin::filterInfo(ActionIDType filterId) const
 	case FP_VORONOI_ATLAS :  return QString("Build an atlased parametrization based on a geodesic voronoi partitioning of the surface and parametrizing each region using Harmonic Mapping. For the  parametrization of the disk like voronoi regions the used method is: <br><b>Ulrich Pinkall, Konrad Polthier</b><br>"
 											"<i>Computing Discrete Minimal Surfaces and Their Conjugates</i> <br>"
 											"Experimental Mathematics, Vol 2 (1), 1993.");
+	case FP_CONJUGATE_PARAM : return QString("Build single parametrization based on method: <br><b>Ulrich Pinkall, Konrad Polthier</b><br>");
 	case FP_UV_WEDGE_TO_VERTEX : return QString("Converts per Wedge Texture Coordinates to per Vertex Texture Coordinates splitting vertices with not coherent Wedge coordinates.");
 	case FP_UV_VERTEX_TO_WEDGE : return QString("Converts per Vertex Texture Coordinates to per Wedge Texture Coordinates. It does not merge superfluous vertices...");
 	case FP_BASIC_TRIANGLE_MAPPING : return QString("Builds a trivial triangle-by-triangle parametrization. <br> Two methods are provided, the first maps all triangles into equal sized triangles, while the second one adapt the size of the triangles in texture space to their original size.");
@@ -128,6 +132,7 @@ int FilterTexturePlugin::getPreConditions(const QAction *a) const
 	case FP_UV_VERTEX_TO_WEDGE : return MeshModel::MM_VERTTEXCOORD;
 	case FP_BASIC_TRIANGLE_MAPPING :
 	case FP_VORONOI_ATLAS :
+	case FP_CONJUGATE_PARAM :
 	case FP_PLANAR_MAPPING : return MeshModel::MM_FACENUMBER;
 	case FP_SET_TEXTURE : return MeshModel::MM_WEDGTEXCOORD;
 	case FP_COLOR_TO_TEXTURE : return MeshModel::MM_VERTCOLOR | MeshModel::MM_WEDGTEXCOORD;
@@ -147,6 +152,7 @@ int FilterTexturePlugin::getRequirements(const QAction *a)
 	case FP_UV_VERTEX_TO_WEDGE :
 	case FP_BASIC_TRIANGLE_MAPPING :
 	case FP_PLANAR_MAPPING :
+	case FP_CONJUGATE_PARAM:
 	case FP_SET_TEXTURE : return MeshModel::MM_NONE;
 	case FP_COLOR_TO_TEXTURE : return MeshModel::MM_FACEFACETOPO;
 	case FP_TRANSFER_TO_TEXTURE : return MeshModel::MM_NONE;
@@ -161,6 +167,7 @@ int FilterTexturePlugin::postCondition(const QAction *a) const
 	switch (ID(a))
 	{
 	case FP_VORONOI_ATLAS: return MeshModel::MM_WEDGTEXCOORD;
+	case FP_CONJUGATE_PARAM: return MeshModel::MM_WEDGTEXCOORD;
 	case FP_UV_WEDGE_TO_VERTEX: return MeshModel::MM_VERTTEXCOORD;
 	case FP_UV_VERTEX_TO_WEDGE : return MeshModel::MM_WEDGTEXCOORD;
 	case FP_PLANAR_MAPPING : return MeshModel::MM_WEDGTEXCOORD;
@@ -188,6 +195,7 @@ FilterTexturePlugin::FilterClass FilterTexturePlugin::getClass(const QAction *a)
 	case FP_PLANAR_MAPPING :
 	case FP_SET_TEXTURE :
 	case FP_COLOR_TO_TEXTURE :
+	case FP_CONJUGATE_PARAM :
 	case FP_TRANSFER_TO_TEXTURE : return FilterPlugin::Texture;
 	case FP_TEX_TO_VCOLOR_TRANSFER : return FilterClass(FilterPlugin::VertexColoring + FilterPlugin::Texture);
 	default : assert(0);
@@ -229,6 +237,9 @@ RichParameterList FilterTexturePlugin::initParameterList(const QAction *action, 
 		parlst.addParam(RichInt("regionNum", 10, "Approx. Region Num", "An estimation of the number of regions that must be generated. Smaller regions could lead to parametrizations with smaller distortion."));
 		parlst.addParam(RichBool("overlapFlag", false, "Overlap", "If checked the resulting parametrization will be composed by <i>overlapping</i> regions, e.g. the resulting mesh will have duplicated faces: each region will have a ring of ovelapping duplicate faces that will ensure that border regions will be parametrized in the atlas twice. This is quite useful for building mipmap robust atlases"));
 		break;
+	case FP_CONJUGATE_PARAM :
+		break;
+		
 	case FP_UV_WEDGE_TO_VERTEX :
 		break;
 	case FP_PLANAR_MAPPING :
@@ -418,6 +429,24 @@ std::map<std::string, QVariant> FilterTexturePlugin::applyFilter(
 		log("Sampling Time %6.3f s", float(pp.vas.samplingTime) / CLOCKS_PER_SEC);
 	}
 		break;
+	case FP_CONJUGATE_PARAM : {
+		 
+		MeshModel &m=*(md.mm());
+		m.updateDataMask(MeshModel::MM_FACEFACETOPO);
+		m.updateDataMask(MeshModel::MM_VERTTEXCOORD);
+		m.updateDataMask(MeshModel::MM_WEDGTEXCOORD);
+		
+		tri::PoissonSolver<CMeshO> PS(m.cm);
+		tri::UpdateBounding<CMeshO>::Box(m.cm);
+		if(PS.IsFeasible())
+		{
+			PS.Init();
+			PS.FixDefaultVertices();
+			PS.SolvePoisson(false);
+			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(m.cm);
+			// tri::VoronoiAtlas<CMeshO>::RegularizeTexArea(m.cm);
+		}
+	} break;
 		
 	case FP_UV_WEDGE_TO_VERTEX : {
 		int vn = m.cm.vn;

@@ -43,6 +43,7 @@ class FilterTexturePlugin : public QObject, public FilterPlugin
 public:
 	enum {
 		FP_VORONOI_ATLAS,
+		FP_CONJUGATE_PARAM,
 		FP_UV_WEDGE_TO_VERTEX,
 		FP_UV_VERTEX_TO_WEDGE,
 		FP_BASIC_TRIANGLE_MAPPING,

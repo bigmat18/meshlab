@@ -29,6 +29,8 @@
 #include <igl/harmonic.h>
 #include <igl/lscm.h>
 #include <igl/map_vertices_to_circle.h>
+#include <vcg/complex/algorithms/update/texture.h>
+using namespace vcg;
 
 FilterParametrizationPlugin::FilterParametrizationPlugin()
 {
@@ -86,7 +88,7 @@ QString FilterParametrizationPlugin::filterInfo(ActionIDType filterId) const
 			   "filter requires that the input mesh has a single fixed boundary." +
 			   commonDescription;
 	case FP_LEAST_SQUARES_PARAM:
-		return "Compuites a least squares conformal maps parametrization of a mesh. " +
+		return "Computes a least squares conformal maps (LSCM) parametrization of a mesh. " +
 			   commonDescription;
 	default :
 		assert(0);
@@ -134,7 +136,8 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 		parlst.addParam(RichInt("harm_function", 1,"N-Harmonic Function", "1 denotes harmonic function, 2 biharmonic, 3 triharmonic, etc."));
 		break;
 	case FP_LEAST_SQUARES_PARAM:
-
+		parlst.addParam(RichBool("lscm_wedge",true,"Per Wedge UV","If true it generates per wedge texture coordinates, otherwise it generate per-vertex texcoords."));
+		parlst.addParam(RichBool("lscm_uv_fit",true,"UV fit","If true it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space."));
 		break;
 	default :
 		assert(0);
@@ -196,18 +199,34 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		boundaryPoints(1) = bnd(bnd.size()/2);
 
 		Eigen::MatrixXd bc(2,2);
-		bc<<0,0,1,0;
+		bc<<0,0,1,1;
 
 		// LSCM parametrization
-		igl::lscm(verts,faces,boundaryPoints,bc,V_uv);
-
+		bool ret = igl::lscm(verts,faces,boundaryPoints,bc,V_uv);
+		if(!ret)
+			throw MLException("Least Squares Conformal Maps Parametrization failed.");
+		
 		unsigned int i = 0;
 		for (auto& v : md.mm()->cm.vert){
 			v.T().u() =V_uv(i, 0);
 			v.T().v() =V_uv(i, 1);
 			i++;
 		}
-
+		// if requested it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space
+		if(par.getBool("lscm_uv_fit"))
+		{
+			// use the code in the static function RegularizeTexArea in the class voronoiTexture
+			
+		}
+		
+		
+		if(par.getBool("lscm_wedge"))
+		{
+			md.mm()->updateDataMask(MeshModel::MM_WEDGTEXCOORD);
+			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(md.mm()->cm);
+			
+		}
+			
 		break;
 	}
 	default :

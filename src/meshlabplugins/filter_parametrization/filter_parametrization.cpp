@@ -30,6 +30,8 @@
 #include <igl/lscm.h>
 #include <igl/map_vertices_to_circle.h>
 #include <vcg/complex/algorithms/update/texture.h>
+#include<vcg/complex/algorithms/parametrization/uv_utils.h>
+
 using namespace vcg;
 
 FilterParametrizationPlugin::FilterParametrizationPlugin()
@@ -216,10 +218,10 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		if(par.getBool("lscm_uv_fit"))
 		{
 			// use the code in the static function RegularizeTexArea in the class voronoiTexture
-			
+			vcg::tri::UV_Utils<CMeshO>::PerVertScaleToUnitSpace(md.mm()->cm);
 		}
 		
-		
+
 		if(par.getBool("lscm_wedge"))
 		{
 			md.mm()->updateDataMask(MeshModel::MM_WEDGTEXCOORD);

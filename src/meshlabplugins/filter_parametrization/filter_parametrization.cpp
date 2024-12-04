@@ -196,6 +196,14 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			throw MLException(
 				"Least Squares Conformal Maps Parametrization can be applied only on meshes that "
 				"have a boundary.");
+		
+		for(auto& f : md.mm()->cm.face) {
+			double area = vcg::DoubleArea(f);
+			if(area == 0)
+				throw MLException("Least Squares Conformal Maps Parametrization can be applied only "
+								  "on meshes that haven't faces with area value equals to 0");
+
+		}
 
 		boundaryPoints(0) = bnd(0);
 		boundaryPoints(1) = bnd(bnd.size()/2);

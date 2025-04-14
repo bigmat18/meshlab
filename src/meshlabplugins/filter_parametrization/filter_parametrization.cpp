@@ -135,7 +135,9 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 	RichParameterList parlst;
 	switch(ID(action)) {
 	case FP_HARMONIC_PARAM :
-		parlst.addParam(RichInt("harm_function", 1,"N-Harmonic Function", "1 denotes harmonic function, 2 biharmonic, 3 triharmonic, etc."));
+		parlst.addParam(RichInt("harm_function", 1,"N-Harmonic Function", "1 denotes harmonic function, 2 biharmonic, 3 triharmonic, etc."));			
+		parlst.addParam(RichBool("harm_wedge",true,"Per Wedge UV","If true it generates per wedge texture coordinates, otherwise it generate per-vertex texcoords."));
+		parlst.addParam(RichBool("harm_uv_fit",true,"UV fit","If true it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space."));
 		break;
 	case FP_LEAST_SQUARES_PARAM:
 		parlst.addParam(RichBool("lscm_wedge",true,"Per Wedge UV","If true it generates per wedge texture coordinates, otherwise it generate per-vertex texcoords."));
@@ -171,6 +173,14 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		if (bnd.size() == 0)
 			throw MLException(
 				"Harmonic Parametrization can be applied only on meshes that have a boundary.");
+
+		md.mm()->updateDataMask(MeshModel::MM_FACEFACETOPO);
+		if(tri::Clean<CMeshO>::CountConnectedComponents(md.mm()->cm) > 1) 
+			throw MLException(
+				"Harmonic Parametrization can be applied only on meshes that "
+				"have only one connected components");
+
+
 		igl::map_vertices_to_circle(verts, bnd, bnd_uv);
 		igl::harmonic(verts,faces,bnd,bnd_uv,1,V_uv);
 
@@ -180,7 +190,21 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			v.T().v() =V_uv(i, 1);
 			i++;
 		}
+		
+		// if requested it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space
+		if(par.getBool("harm_uv_fit"))
+		{
+			// use the code in the static function RegularizeTexArea in the class voronoiTexture
+			vcg::tri::UV_Utils<CMeshO>::PerVertScaleToUnitSpace(md.mm()->cm);
+		}
+		
 
+		if(par.getBool("harm_wedge"))
+		{
+			md.mm()->updateDataMask(MeshModel::MM_WEDGTEXCOORD);
+			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(md.mm()->cm);			
+		}
+	
 		break;
 	}
 	case FP_LEAST_SQUARES_PARAM: {
@@ -202,8 +226,20 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			if(area == 0)
 				throw MLException("Least Squares Conformal Maps Parametrization can be applied only "
 								  "on meshes that haven't faces with area value equals to 0");
-
 		}
+
+		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, false))
+			throw MLException(
+				"Least Squares Conformal Maps Parametrization can be applied only on meshes that "
+				"have no unreference vertex");
+
+
+		md.mm()->updateDataMask(MeshModel::MM_FACEFACETOPO);
+		if(tri::Clean<CMeshO>::CountConnectedComponents(md.mm()->cm) > 1) 
+			throw MLException(
+					"Least Squares Conformal Maps Parametrization can be applied only on meshes that "
+					"have only one connected components");
+		
 
 		boundaryPoints(0) = bnd(0);
 		boundaryPoints(1) = bnd(bnd.size()/2);
@@ -233,8 +269,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		if(par.getBool("lscm_wedge"))
 		{
 			md.mm()->updateDataMask(MeshModel::MM_WEDGTEXCOORD);
-			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(md.mm()->cm);
-			
+			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(md.mm()->cm);			
 		}
 			
 		break;

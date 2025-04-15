@@ -238,8 +238,9 @@ RichParameterList FilterTexturePlugin::initParameterList(const QAction *action, 
 		parlst.addParam(RichBool("overlapFlag", false, "Overlap", "If checked the resulting parametrization will be composed by <i>overlapping</i> regions, e.g. the resulting mesh will have duplicated faces: each region will have a ring of ovelapping duplicate faces that will ensure that border regions will be parametrized in the atlas twice. This is quite useful for building mipmap robust atlases"));
 		break;
 	case FP_CONJUGATE_PARAM :
+		parlst.addParam(RichBool("conjugate_wedge",true,"Per Wedge UV","If true it generates per wedge texture coordinates, otherwise it generate per-vertex texcoords."));
+		parlst.addParam(RichBool("conjugate_uv_fit",true,"UV fit","If true it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space."));
 		break;
-		
 	case FP_UV_WEDGE_TO_VERTEX :
 		break;
 	case FP_PLANAR_MAPPING :
@@ -443,8 +444,24 @@ std::map<std::string, QVariant> FilterTexturePlugin::applyFilter(
 			PS.Init();
 			PS.FixDefaultVertices();
 			PS.SolvePoisson(false);
-			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(m.cm);
-			// tri::VoronoiAtlas<CMeshO>::RegularizeTexArea(m.cm);
+
+			// if requested it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space
+			if(par.getBool("conjugate_uv_fit"))
+			{
+				// use the code in the static function RegularizeTexArea in the class voronoiTexture
+				vcg::tri::UV_Utils<CMeshO>::PerVertScaleToUnitSpace(m.cm);
+			}
+			
+
+			if(par.getBool("conjugate_wedge"))
+			{
+				md.mm()->updateDataMask(MeshModel::MM_WEDGTEXCOORD);
+				tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(m.cm);			
+			}	
+			
+		} else {
+			log("Poisson problem is not feasible");
+			throw MLException("Poisson problem is not feasible");
 		}
 	} break;
 		

@@ -56,9 +56,9 @@ QString FilterParametrizationPlugin::filterName(ActionIDType filterId) const
 {
 	switch(filterId) {
 	case FP_HARMONIC_PARAM :
-		return "Harmonic Parametrization";
+		return "Parametrization: Harmonic";
 	case FP_LEAST_SQUARES_PARAM:
-		return "Least Squares Conformal Maps Parametrization";
+		return "Parametrization: LSCM";
 	default :
 		assert(0);
 		return "";

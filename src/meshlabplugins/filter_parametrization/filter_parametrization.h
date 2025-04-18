@@ -37,7 +37,8 @@ public:
 	//enum used to give an ID to every filter implemented in the plugin
 	enum FileterIds {
 		FP_HARMONIC_PARAM,
-		FP_LEAST_SQUARES_PARAM};
+		FP_LEAST_SQUARES_PARAM,
+		FP_MAX_DISTORTION_CUT};
 
 	FilterParametrizationPlugin();
 

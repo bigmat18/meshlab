@@ -30,13 +30,18 @@
 #include <igl/lscm.h>
 #include <igl/map_vertices_to_circle.h>
 #include <vcg/complex/algorithms/update/texture.h>
-#include<vcg/complex/algorithms/parametrization/uv_utils.h>
+#include <vcg/complex/algorithms/parametrization/uv_utils.h>
+
+#include <vcg/complex/algorithms/parametrization/distortion.h>
+#include <vcg/complex/algorithms/geodesic.h>
+#include <vcg/complex/algorithms/curve_on_manifold.h>
+#include <vcg/complex/algorithms/crease_cut.h>
 
 using namespace vcg;
 
 FilterParametrizationPlugin::FilterParametrizationPlugin()
 {
-	typeList = { FP_HARMONIC_PARAM, FP_LEAST_SQUARES_PARAM};
+	typeList = { FP_HARMONIC_PARAM, FP_LEAST_SQUARES_PARAM, FP_MAX_DISTORTION_CUT};
 
 	for(const ActionIDType& tt : typeList)
 		actionList.push_back(new QAction(filterName(tt), this));
@@ -59,6 +64,8 @@ QString FilterParametrizationPlugin::filterName(ActionIDType filterId) const
 		return "Parametrization: Harmonic";
 	case FP_LEAST_SQUARES_PARAM:
 		return "Parametrization: LSCM";
+	case FP_MAX_DISTORTION_CUT:
+		return "Cut mesh from max distortion point";
 	default :
 		assert(0);
 		return "";
@@ -72,6 +79,8 @@ QString FilterParametrizationPlugin::pythonFilterName(ActionIDType filter) const
 		return "compute_texcoord_parametrization_harmonic";
 	case FP_LEAST_SQUARES_PARAM:
 		return "compute_texcoord_parametrization_least_squares_conformal_maps";
+	case FP_MAX_DISTORTION_CUT:
+		return "compute_cut_from_max_distortion_point";
 	default :
 		assert(0);
 		return "";
@@ -92,6 +101,8 @@ QString FilterParametrizationPlugin::filterInfo(ActionIDType filterId) const
 	case FP_LEAST_SQUARES_PARAM:
 		return "Computes a least squares conformal maps (LSCM) parametrization of a mesh. " +
 			   commonDescription;
+	case FP_MAX_DISTORTION_CUT:
+		return "Compute a cut on mesh from point with max distortion";
 	default :
 		assert(0);
 		return "Unknown Filter";
@@ -103,6 +114,8 @@ FilterParametrizationPlugin::FilterClass FilterParametrizationPlugin::getClass(c
 	switch(ID(a)) {
 	case FP_HARMONIC_PARAM :
 	case FP_LEAST_SQUARES_PARAM:
+		return FilterPlugin::Texture;
+	case FP_MAX_DISTORTION_CUT:
 		return FilterPlugin::Texture;
 	default :
 		assert(0);
@@ -142,6 +155,9 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 	case FP_LEAST_SQUARES_PARAM:
 		parlst.addParam(RichBool("lscm_wedge",true,"Per Wedge UV","If true it generates per wedge texture coordinates, otherwise it generate per-vertex texcoords."));
 		parlst.addParam(RichBool("lscm_uv_fit",true,"UV fit","If true it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space."));
+		break;
+	case FP_MAX_DISTORTION_CUT:
+		parlst.addParam(RichInt("distortion_fun", 1, "Type of distortion", "1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion" ));
 		break;
 	default :
 		assert(0);
@@ -272,6 +288,58 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(md.mm()->cm);			
 		}
 			
+		break;
+	}
+	case FP_MAX_DISTORTION_CUT: {
+		Eigen::MatrixX3i faces = meshlab::faceMatrix(md.mm()->cm);
+		Eigen::VectorXi bnd;
+
+		igl::boundary_loop(faces,bnd);
+		if (bnd.size() == 0)
+			throw MLException(
+				"Cut can be applied only on meshes that have a boundary.");
+
+		MeshModel *m = md.mm();
+		m->updateDataMask(
+			MeshModel::MM_WEDGTEXCOORD | 
+			MeshModel::MM_FACEQUALITY | 
+			MeshModel::MM_VERTQUALITY | 
+			MeshModel::MM_VERTFACETOPO | 
+			MeshModel::MM_FACEFACETOPO | 
+			MeshModel::MM_FACEMARK
+		);
+
+		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm);
+		tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
+
+		float maxDistortion = 0;
+		int vertexIndex = 0;
+		for (auto vi = m->cm.vert.begin(); vi != m->cm.vert.end(); ++vi) {
+			if(!vi->IsB() && vi->Q() > maxDistortion) {
+				maxDistortion = vi->Q();
+				vertexIndex = vi->Index();
+			}
+		}
+
+	    CMeshO::PerVertexAttributeHandle<CMeshO::VertexPointer> parents;
+		parents = vcg::tri::Allocator<CMeshO>::GetPerVertexAttribute<CMeshO::VertexPointer>(m->cm);
+		vcg::tri::Geodesic<CMeshO>::DistanceFromBorder(m->cm, &parents);
+
+
+		CMeshO polyline;
+		while (parents[vertexIndex]->Index() != vertexIndex) {
+			vcg::tri::Allocator<CMeshO>::AddEdge(polyline,m->cm.vert[vertexIndex].P(), parents[vertexIndex]->P());
+			vertexIndex = parents[vertexIndex]->Index();
+		}; 
+		
+		vcg::tri::CoM<CMeshO> cc(m->cm);
+		cc.Init();
+		bool ret = cc.TagFaceEdgeSelWithPolyLine(polyline);
+		if(ret) {
+			vcg::tri::UpdateTopology<CMeshO>::FaceFace(m->cm);
+			vcg::tri::CutMeshAlongSelectedFaceEdges<CMeshO>(m->cm);
+		}
+
 		break;
 	}
 	default :

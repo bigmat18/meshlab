@@ -877,7 +877,7 @@ std::map<std::string, QVariant> FilterColorProc::applyFilter(const QAction *filt
 			}
 			tri::UpdateColor<CMeshO>::PerFaceQualityRamp(m->cm, minV, maxV, false);
 		}
-		break;
+		break; 
 
 
 		case CP_RANDOM_CONNECTED_COMPONENT:

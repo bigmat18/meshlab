@@ -157,7 +157,7 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 		parlst.addParam(RichBool("lscm_uv_fit",true,"UV fit","If true it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space."));
 		break;
 	case FP_MAX_DISTORTION_CUT:
-		parlst.addParam(RichInt("distortion_fun", 1, "Type of distortion", "1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion" ));
+		parlst.addParam(RichInt("distortion_fun", 1, "Type of distortion (1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion)", "1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion" ));
 		break;
 	default :
 		assert(0);
@@ -302,15 +302,27 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		MeshModel *m = md.mm();
 		m->updateDataMask(
 			MeshModel::MM_WEDGTEXCOORD | 
+			MeshModel::MM_VERTTEXCOORD |
 			MeshModel::MM_FACEQUALITY | 
 			MeshModel::MM_VERTQUALITY | 
 			MeshModel::MM_VERTFACETOPO | 
 			MeshModel::MM_FACEFACETOPO | 
-			MeshModel::MM_FACEMARK
+			MeshModel::MM_FACEMARK |
+			MeshModel::MM_VERTCOLOR
 		);
 
-		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm);
+		vcg::tri::Distortion<CMeshO, true>::DistType type;
+		switch (par.getInt("distortion_fun"))
+		{
+			case 1: type = vcg::tri::Distortion<CMeshO, true>::DistType::AreaDist; break;
+			case 2: type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeDist; break;
+			case 3: type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break;
+			default:
+				throw MLException("Distortion function options must be: 1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion");
+		}
+		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type);
 		tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
+		vcg::tri::UpdateQuality<CMeshO>::VertexNormalize(m->cm);
 
 		float maxDistortion = 0;
 		int vertexIndex = 0;
@@ -320,6 +332,8 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 				vertexIndex = vi->Index();
 			}
 		}
+		m->cm.vert[vertexIndex].C() = vcg::GetColorMapping(1, 0, 0, vcg::ColorMap::RGB);
+		// vcg::tri::UpdateColor<CMeshO>::PerVertexQualityRamp(m->cm);
 
 	    CMeshO::PerVertexAttributeHandle<CMeshO::VertexPointer> parents;
 		parents = vcg::tri::Allocator<CMeshO>::GetPerVertexAttribute<CMeshO::VertexPointer>(m->cm);
@@ -328,6 +342,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 		CMeshO polyline;
 		while (parents[vertexIndex]->Index() != vertexIndex) {
+			std::cout << vertexIndex << std::endl;
 			vcg::tri::Allocator<CMeshO>::AddEdge(polyline,m->cm.vert[vertexIndex].P(), parents[vertexIndex]->P());
 			vertexIndex = parents[vertexIndex]->Index();
 		}; 

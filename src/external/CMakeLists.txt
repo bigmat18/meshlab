@@ -44,7 +44,7 @@ if ((NOT MESHLAB_BUILD_MINI) AND MESHLAB_ALLOW_OPTIONAL_EXTERNAL_LIBRARIES)
 	include(${CMAKE_CURRENT_SOURCE_DIR}/boost.cmake)
 
 	# cgal - optional for filter_mesh_booleans
-	include(${CMAKE_CURRENT_SOURCE_DIR}/cgal.cmake)
+	# include(${CMAKE_CURRENT_SOURCE_DIR}/cgal.cmake)
 
 	# embree - optional for filter_embree
 	include(${CMAKE_CURRENT_SOURCE_DIR}/embree.cmake)
@@ -56,7 +56,7 @@ if ((NOT MESHLAB_BUILD_MINI) AND MESHLAB_ALLOW_OPTIONAL_EXTERNAL_LIBRARIES)
 	include(${CMAKE_CURRENT_SOURCE_DIR}/lib3ds.cmake)
 
 	# lib3mf - optional, for io_3mf
-	include(${CMAKE_CURRENT_SOURCE_DIR}/lib3mf.cmake)
+	# include(${CMAKE_CURRENT_SOURCE_DIR}/lib3mf.cmake)
 
 	# libigl - optional for filter_mesh_booleans
 	include(${CMAKE_CURRENT_SOURCE_DIR}/libigl.cmake)
@@ -89,5 +89,5 @@ if ((NOT MESHLAB_BUILD_MINI) AND MESHLAB_ALLOW_OPTIONAL_EXTERNAL_LIBRARIES)
 	include(${CMAKE_CURRENT_SOURCE_DIR}/xerces.cmake)
 
 	# libe57Format - optional, for io_e57
-	include(${CMAKE_CURRENT_SOURCE_DIR}/e57.cmake)
+	# include(${CMAKE_CURRENT_SOURCE_DIR}/e57.cmake)
 endif()

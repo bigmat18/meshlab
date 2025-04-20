@@ -36,12 +36,14 @@
 #include <vcg/complex/algorithms/geodesic.h>
 #include <vcg/complex/algorithms/curve_on_manifold.h>
 #include <vcg/complex/algorithms/crease_cut.h>
+#include<vcg/complex/algorithms/cut_tree.h>
+
 
 using namespace vcg;
 
 FilterParametrizationPlugin::FilterParametrizationPlugin()
 {
-	typeList = { FP_HARMONIC_PARAM, FP_LEAST_SQUARES_PARAM, FP_MAX_DISTORTION_CUT};
+	typeList = { FP_HARMONIC_PARAM, FP_LEAST_SQUARES_PARAM, FP_MAX_DISTORTION_CUT, FP_TOPOLOGICAL_CUT};
 
 	for(const ActionIDType& tt : typeList)
 		actionList.push_back(new QAction(filterName(tt), this));
@@ -66,6 +68,8 @@ QString FilterParametrizationPlugin::filterName(ActionIDType filterId) const
 		return "Parametrization: LSCM";
 	case FP_MAX_DISTORTION_CUT:
 		return "Cut mesh from max distortion point";
+	case FP_TOPOLOGICAL_CUT:
+		return "Topological cut";
 	default :
 		assert(0);
 		return "";
@@ -81,6 +85,8 @@ QString FilterParametrizationPlugin::pythonFilterName(ActionIDType filter) const
 		return "compute_texcoord_parametrization_least_squares_conformal_maps";
 	case FP_MAX_DISTORTION_CUT:
 		return "compute_cut_from_max_distortion_point";
+	case FP_TOPOLOGICAL_CUT:
+		return "compute_topological_cut";
 	default :
 		assert(0);
 		return "";
@@ -103,6 +109,8 @@ QString FilterParametrizationPlugin::filterInfo(ActionIDType filterId) const
 			   commonDescription;
 	case FP_MAX_DISTORTION_CUT:
 		return "Compute a cut on mesh from point with max distortion";
+	case FP_TOPOLOGICAL_CUT:
+		return "Compute a topological cut on a mesh";
 	default :
 		assert(0);
 		return "Unknown Filter";
@@ -116,6 +124,8 @@ FilterParametrizationPlugin::FilterClass FilterParametrizationPlugin::getClass(c
 	case FP_LEAST_SQUARES_PARAM:
 		return FilterPlugin::Texture;
 	case FP_MAX_DISTORTION_CUT:
+		return FilterPlugin::Texture;
+	case FP_TOPOLOGICAL_CUT:
 		return FilterPlugin::Texture;
 	default :
 		assert(0);
@@ -158,6 +168,8 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 		break;
 	case FP_MAX_DISTORTION_CUT:
 		parlst.addParam(RichInt("distortion_fun", 1, "Type of distortion (1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion)", "1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion" ));
+		break;
+	case FP_TOPOLOGICAL_CUT:
 		break;
 	default :
 		assert(0);
@@ -223,7 +235,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 	
 		break;
 	}
-	case FP_LEAST_SQUARES_PARAM: {
+	case FP_LEAST_SQUARES_PARAM : {
 		EigenMatrixX3m v = meshlab::vertexMatrix(md.mm()->cm);
 		Eigen::MatrixX3d verts = v.cast<double>();
 		Eigen::MatrixX3i faces = meshlab::faceMatrix(md.mm()->cm);
@@ -290,7 +302,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			
 		break;
 	}
-	case FP_MAX_DISTORTION_CUT: {
+	case FP_MAX_DISTORTION_CUT : {
 		Eigen::MatrixX3i faces = meshlab::faceMatrix(md.mm()->cm);
 		Eigen::VectorXi bnd;
 
@@ -355,6 +367,36 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			vcg::tri::CutMeshAlongSelectedFaceEdges<CMeshO>(m->cm);
 		}
 
+		break;
+	}
+	case FP_TOPOLOGICAL_CUT : {
+		MeshModel *m = md.mm();
+		m->updateDataMask(
+			MeshModel::MM_WEDGTEXCOORD | 
+			MeshModel::MM_VERTTEXCOORD |
+			MeshModel::MM_VERTFACETOPO | 
+			MeshModel::MM_FACEFACETOPO | 
+			MeshModel::MM_FACEMARK |
+			MeshModel::MM_FACECOLOR | 
+			MeshModel::MM_VERTCOLOR
+		);
+		tri::UpdateTopology<CMeshO>::FaceFace(m->cm);
+		tri::UpdateTopology<CMeshO>::VertexFace(m->cm); 
+
+		CMeshO polyline;
+		polyline.face.EnableFFAdjacency();
+		polyline.face.EnableVFAdjacency();
+		srand(time(nullptr));
+
+		vcg::tri::CutTree<CMeshO> ct(m->cm);
+		ct.Build(polyline, rand() % m->cm.fn);
+
+		vcg::tri::CoM<CMeshO> cc(m->cm);
+		cc.Init();
+		if(cc.TagFaceEdgeSelWithPolyLine(polyline)) {
+			vcg::tri::UpdateTopology<CMeshO>::FaceFace(m->cm);
+			vcg::tri::CutMeshAlongSelectedFaceEdges<CMeshO>(m->cm);
+		}
 		break;
 	}
 	default :

@@ -38,8 +38,17 @@
 #include <vcg/complex/algorithms/crease_cut.h>
 #include<vcg/complex/algorithms/cut_tree.h>
 
-
 using namespace vcg;
+
+class CutEdge;
+class CutFace;
+class CutVertex;
+struct CutUsedTypes : public UsedTypes<Use<CutVertex>::AsVertexType, Use<CutEdge>::AsEdgeType, Use<CutFace>::AsFaceType>{};
+
+class CutVertex  : public Vertex< CutUsedTypes, vertex::Coord3f, vertex::Normal3f, vertex::Qualityf, vertex::Color4b, vertex::VEAdj, vertex::VFAdj,vertex::BitFlags  >{};
+class CutEdge    : public Edge<   CutUsedTypes, edge::VertexRef, edge::VEAdj,     edge::EEAdj, edge::BitFlags> {};
+class CutFace    : public Face  < CutUsedTypes, face::VertexRef,  face::Normal3f, face::Qualityf, face::Color4b, face::VFAdj, face::FFAdj, face::Mark, face::Color4b, face::BitFlags > {};
+class CutMesh : public tri::TriMesh< std::vector<CutVertex>, std::vector<CutEdge>, std::vector<CutFace> >{};
 
 FilterParametrizationPlugin::FilterParametrizationPlugin()
 {
@@ -376,25 +385,23 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_VERTTEXCOORD |
 			MeshModel::MM_VERTFACETOPO | 
 			MeshModel::MM_FACEFACETOPO | 
-			MeshModel::MM_FACEMARK |
-			MeshModel::MM_FACECOLOR | 
-			MeshModel::MM_VERTCOLOR
+			MeshModel::MM_FACEMARK
 		);
-		CMeshO polyline;
-		polyline.face.EnableFFAdjacency();
-		polyline.face.EnableVFAdjacency();
-		vcg::tri::UpdateFlags<CMeshO>::FaceClearFaceEdgeS(polyline);
+
+		CutMesh polyline, cm;
+		vcg::tri::Append<CutMesh,CMeshO>::MeshCopy(cm,m->cm);
+
 		srand(time(nullptr));
+		vcg::tri::CutTree<CutMesh> ct(cm);
+		ct.Build(polyline, rand() % cm.fn);
 
-		vcg::tri::CutTree<CMeshO> ct(m->cm);
-		ct.Build(polyline, rand() % m->cm.fn);
-
-		vcg::tri::CoM<CMeshO> cc(m->cm);
+		vcg::tri::CoM<CutMesh> cc(cm);
 		cc.Init();
 		if(cc.TagFaceEdgeSelWithPolyLine(polyline)) {
-			vcg::tri::UpdateTopology<CMeshO>::FaceFace(m->cm);
-			vcg::tri::CutMeshAlongSelectedFaceEdges<CMeshO>(m->cm);
+			vcg::tri::UpdateTopology<CutMesh>::FaceFace(cm);
+			vcg::tri::CutMeshAlongSelectedFaceEdges<CutMesh>(cm);
 		}
+		vcg::tri::Append<CMeshO,CutMesh>::MeshCopy(m->cm,cm);
 		break;
 	}
 	default :

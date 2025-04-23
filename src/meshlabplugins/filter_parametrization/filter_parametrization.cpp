@@ -380,12 +380,10 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_FACECOLOR | 
 			MeshModel::MM_VERTCOLOR
 		);
-		tri::UpdateTopology<CMeshO>::FaceFace(m->cm);
-		tri::UpdateTopology<CMeshO>::VertexFace(m->cm); 
-
 		CMeshO polyline;
 		polyline.face.EnableFFAdjacency();
 		polyline.face.EnableVFAdjacency();
+		vcg::tri::UpdateFlags<CMeshO>::FaceClearFaceEdgeS(polyline);
 		srand(time(nullptr));
 
 		vcg::tri::CutTree<CMeshO> ct(m->cm);

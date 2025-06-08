@@ -315,8 +315,6 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		
 		MeshModel *m = md.mm();
 		m->updateDataMask(
-			MeshModel::MM_WEDGTEXCOORD | 
-			MeshModel::MM_VERTTEXCOORD |
 			MeshModel::MM_FACEQUALITY | 
 			MeshModel::MM_VERTQUALITY | 
 			MeshModel::MM_VERTFACETOPO | 
@@ -339,12 +337,14 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 				throw MLException("Distortion function options must be: 1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion");
 		}
 
+		// Check if parametrization is applied
+		if (!m->hasDataMask(MeshModel::MM_WEDGTEXCOORD))
+			throw MLException("This metric need Texture Coordinate");
+
 		// Calculate distorion for each face and vertex
 		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type);
 		vcg::tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
 		vcg::tri::UpdateQuality<CMeshO>::VertexNormalize(m->cm);
-
-		vcg::tri::UpdateColor<CMeshO>::PerVertexConstant(m->cm, Color4b(0, 0, 0, 0));
 
 		// search the vertex with max distortion value that there is not boundary
 		float maxDistortion = 0;

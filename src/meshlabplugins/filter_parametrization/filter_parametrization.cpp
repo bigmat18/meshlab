@@ -343,7 +343,6 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		}
 		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type);
 		tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
-		vcg::tri::UpdateQuality<CMeshO>::VertexNormalize(m->cm);
 
 		float maxDistortion = 0;
 		int vertexIndex = 0;
@@ -358,7 +357,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 	    CMeshO::PerVertexAttributeHandle<CMeshO::VertexPointer> parents;
 		parents = vcg::tri::Allocator<CMeshO>::GetPerVertexAttribute<CMeshO::VertexPointer>(m->cm);
-		vcg::tri::Geodesic<CMeshO>::DistanceFromBorder(m->cm, &parents);
+		vcg::tri::Geodesic<CMeshO>::DistanceFromBorder(m->cm, &parents); 
 
 
 		CMeshO polyline;

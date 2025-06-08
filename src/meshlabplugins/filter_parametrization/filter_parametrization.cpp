@@ -312,14 +312,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		break;
 	}
 	case FP_MAX_DISTORTION_CUT : {
-		Eigen::MatrixX3i faces = meshlab::faceMatrix(md.mm()->cm);
-		Eigen::VectorXi bnd;
-
-		igl::boundary_loop(faces,bnd);
-		if (bnd.size() == 0)
-			throw MLException(
-				"Cut can be applied only on meshes that have a boundary.");
-
+		
 		MeshModel *m = md.mm();
 		m->updateDataMask(
 			MeshModel::MM_WEDGTEXCOORD | 
@@ -332,41 +325,67 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_VERTCOLOR
 		);
 
+		// Choose witch distorion type use to calculate path
 		vcg::tri::Distortion<CMeshO, true>::DistType type;
 		switch (par.getInt("distortion_fun"))
 		{
-			case 1: type = vcg::tri::Distortion<CMeshO, true>::DistType::AreaDist; break;
-			case 2: type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeDist; break;
-			case 3: type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break;
+			case 1: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::AreaDist; break;
+			case 2: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeDist; break;
+			case 3: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break;
 			default:
 				throw MLException("Distortion function options must be: 1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion");
 		}
-		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type);
-		tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
 
+		// Calculate distorion for each face and vertex
+		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type);
+		vcg::tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
+		vcg::tri::UpdateQuality<CMeshO>::VertexNormalize(m->cm);
+
+		vcg::tri::UpdateColor<CMeshO>::PerVertexConstant(m->cm, Color4b(0, 0, 0, 0));
+
+		// search the vertex with max distortion value that there is not boundary
 		float maxDistortion = 0;
 		int vertexIndex = 0;
+		std::vector<CMeshO::VertexPointer> bnd;
+
 		for (auto vi = m->cm.vert.begin(); vi != m->cm.vert.end(); ++vi) {
-			if(!vi->IsB() && vi->Q() > maxDistortion) {
+			vi->C() = vcg::Color4b(static_cast<unsigned char>(vi->Q() * 255), 0, 0, 255);
+			if(vi->IsB()) {
+				bnd.push_back(&(*vi));	
+			} else if(vi->Q() > maxDistortion) {
 				maxDistortion = vi->Q();
 				vertexIndex = vi->Index();
 			}
 		}
-		m->cm.vert[vertexIndex].C() = vcg::GetColorMapping(1, 0, 0, vcg::ColorMap::RGB);
-		// vcg::tri::UpdateColor<CMeshO>::PerVertexQualityRamp(m->cm);
 
+		std::cout << vertexIndex << std::endl;
+
+		if (bnd.empty())
+			throw MLException(
+				"Cut can be applied only on meshes that have a boundary.");
+
+		m->cm.vert[vertexIndex].C() = vcg::Color4b(0, 255, 0, 255);
+
+		// Calculate for each vertex of m the distance of border. Inside parents is stored the path fo boundary from each vertex.
 	    CMeshO::PerVertexAttributeHandle<CMeshO::VertexPointer> parents;
 		parents = vcg::tri::Allocator<CMeshO>::GetPerVertexAttribute<CMeshO::VertexPointer>(m->cm);
-		vcg::tri::Geodesic<CMeshO>::DistanceFromBorder(m->cm, &parents); 
 
+		vcg::tri::EuclideanDistance<CMeshO> dd;
+    	tri::UpdateQuality<CMeshO>::VertexConstant(m->cm,0);
+		vcg::tri::Geodesic<CMeshO>::Compute(m->cm, bnd, dd, std::numeric_limits<CMeshO::ScalarType>::max(), nullptr, nullptr, &parents);
 
+		// store each edge route to boundary from max distortion vertex
 		CMeshO polyline;
 		while (parents[vertexIndex]->Index() != vertexIndex) {
-			std::cout << vertexIndex << std::endl;
+			// std::cout << vertexIndex << " " << parents[vertexIndex]->Index() << std::endl;
 			vcg::tri::Allocator<CMeshO>::AddEdge(polyline,m->cm.vert[vertexIndex].P(), parents[vertexIndex]->P());
 			vertexIndex = parents[vertexIndex]->Index();
 		}; 
 		
+		// generate a cut for polyline
 		vcg::tri::CoM<CMeshO> cc(m->cm);
 		cc.Init();
 		bool ret = cc.TagFaceEdgeSelWithPolyLine(polyline);

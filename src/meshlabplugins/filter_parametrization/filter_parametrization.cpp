@@ -406,12 +406,20 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_FACEMARK
 		);
 
+		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, false))
+			throw MLException(
+				"Topologoca cut can be applied only on meshes that "
+		         "have no unreference vertex");
+
 		CutMesh polyline, cm;
 		vcg::tri::Append<CutMesh,CMeshO>::MeshCopy(cm,m->cm);
 
 		srand(time(nullptr));
 		vcg::tri::CutTree<CutMesh> ct(cm);
 		ct.Build(polyline, rand() % cm.fn);
+
+		if(polyline.EN() == 0)
+			throw MLException("Mesh was already homeomorfic to a disk no need of cut. Exiting.");
 
 		vcg::tri::CoM<CutMesh> cc(cm);
 		cc.Init();

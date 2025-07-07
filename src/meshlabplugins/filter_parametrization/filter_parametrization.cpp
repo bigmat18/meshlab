@@ -52,7 +52,7 @@ class CutMesh : public tri::TriMesh< std::vector<CutVertex>, std::vector<CutEdge
 
 FilterParametrizationPlugin::FilterParametrizationPlugin()
 {
-	typeList = { FP_HARMONIC_PARAM, FP_LEAST_SQUARES_PARAM, FP_MAX_DISTORTION_CUT, FP_TOPOLOGICAL_CUT};
+	typeList = { FP_HARMONIC_PARAM, FP_LEAST_SQUARES_PARAM, FP_DISTORTION_CUT, FP_TOPOLOGICAL_CUT};
 
 	for(const ActionIDType& tt : typeList)
 		actionList.push_back(new QAction(filterName(tt), this));
@@ -75,8 +75,8 @@ QString FilterParametrizationPlugin::filterName(ActionIDType filterId) const
 		return "Parametrization: Harmonic";
 	case FP_LEAST_SQUARES_PARAM:
 		return "Parametrization: LSCM";
-	case FP_MAX_DISTORTION_CUT:
-		return "Cut mesh from max distortion point";
+	case FP_DISTORTION_CUT:
+		return "Distortion cut";
 	case FP_TOPOLOGICAL_CUT:
 		return "Topological cut";
 	default :
@@ -92,8 +92,8 @@ QString FilterParametrizationPlugin::pythonFilterName(ActionIDType filter) const
 		return "compute_texcoord_parametrization_harmonic";
 	case FP_LEAST_SQUARES_PARAM:
 		return "compute_texcoord_parametrization_least_squares_conformal_maps";
-	case FP_MAX_DISTORTION_CUT:
-		return "compute_cut_from_max_distortion_point";
+	case FP_DISTORTION_CUT:
+		return "compute_cut_from_distortion_point";
 	case FP_TOPOLOGICAL_CUT:
 		return "compute_topological_cut";
 	default :
@@ -116,8 +116,8 @@ QString FilterParametrizationPlugin::filterInfo(ActionIDType filterId) const
 	case FP_LEAST_SQUARES_PARAM:
 		return "Computes a least squares conformal maps (LSCM) parametrization of a mesh. " +
 			   commonDescription;
-	case FP_MAX_DISTORTION_CUT:
-		return "Compute a cut on mesh from point with max distortion";
+	case FP_DISTORTION_CUT:
+		return "Compute a cut on mesh from point with max/min distortion";
 	case FP_TOPOLOGICAL_CUT:
 		return "Compute a topological cut on a mesh";
 	default :
@@ -132,7 +132,7 @@ FilterParametrizationPlugin::FilterClass FilterParametrizationPlugin::getClass(c
 	case FP_HARMONIC_PARAM :
 	case FP_LEAST_SQUARES_PARAM:
 		return FilterPlugin::Texture;
-	case FP_MAX_DISTORTION_CUT:
+	case FP_DISTORTION_CUT:
 		return FilterPlugin::Texture;
 	case FP_TOPOLOGICAL_CUT:
 		return FilterPlugin::Texture;
@@ -175,10 +175,21 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 		parlst.addParam(RichBool("lscm_wedge",true,"Per Wedge UV","If true it generates per wedge texture coordinates, otherwise it generate per-vertex texcoords."));
 		parlst.addParam(RichBool("lscm_uv_fit",true,"UV fit","If true it rescale the generate texture coords so that it lies in the [0..1]x[0..1] UV space."));
 		break;
-	case FP_MAX_DISTORTION_CUT:
-		parlst.addParam(RichInt("distortion_fun", 1, "Type of distortion (1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion)", "1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion" ));
+	case FP_DISTORTION_CUT: {
+		QStringList metrics;
+		metrics.push_back("AreaDist");
+		metrics.push_back("EdgeDist");
+		metrics.push_back("AngleDist");
+		metrics.push_back("EdgeComprStretch");
+
+		parlst.addParam(RichEnum("distortion_fun", 0, metrics, tr("Distortion Fun:"), tr("Choose a metric to compute cut.")));
+		parlst.addParam(RichBool("remove_unreference_verts", true, "Remove unreference vertex after computation" ));
+
+		parlst.addParam(RichBool("max", true, "If true gets max value, else the min" ));
 		break;
+	}
 	case FP_TOPOLOGICAL_CUT:
+		parlst.addParam(RichBool("remove_unreference_verts", true, "Remove unreference vertex after computation" ));
 		break;
 	default :
 		assert(0);
@@ -311,7 +322,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			
 		break;
 	}
-	case FP_MAX_DISTORTION_CUT : {
+	case FP_DISTORTION_CUT : {
 		
 		MeshModel *m = md.mm();
 		m->updateDataMask(
@@ -319,22 +330,28 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_VERTQUALITY | 
 			MeshModel::MM_VERTFACETOPO | 
 			MeshModel::MM_FACEFACETOPO | 
-			MeshModel::MM_FACEMARK |
-			MeshModel::MM_VERTCOLOR
+			MeshModel::MM_FACEMARK 
 		);
+
+		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, false))
+			throw MLException(
+				"Max distortion cut can be applied only on meshes that "
+		         "have no unreference vertex");
 
 		// Choose witch distorion type use to calculate path
 		vcg::tri::Distortion<CMeshO, true>::DistType type;
-		switch (par.getInt("distortion_fun"))
+		switch (par.getEnum("distortion_fun"))
 		{
-			case 1: 
+			case 0: 
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::AreaDist; break;
-			case 2: 
+			case 1: 
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeDist; break;
-			case 3: 
+			case 2: 
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break;
+			case 3: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeComprStretch; break;
 			default:
-				throw MLException("Distortion function options must be: 1 Area Distortion, 2 Edge Distortion, 3 Angle Distortion");
+				throw MLException("Wrong dist fun selected");
 		}
 
 		// Check if parametrization is applied
@@ -347,27 +364,23 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		vcg::tri::UpdateQuality<CMeshO>::VertexNormalize(m->cm);
 
 		// search the vertex with max distortion value that there is not boundary
-		float maxDistortion = 0;
+		float bestDistortion = m->cm.vert[0].Q();
 		int vertexIndex = 0;
 		std::vector<CMeshO::VertexPointer> bnd;
 
+		auto compare = [](auto a, auto b, bool val) { return val ? (a > b) : (a < b); };
 		for (auto vi = m->cm.vert.begin(); vi != m->cm.vert.end(); ++vi) {
-			vi->C() = vcg::Color4b(static_cast<unsigned char>(vi->Q() * 255), 0, 0, 255);
 			if(vi->IsB()) {
 				bnd.push_back(&(*vi));	
-			} else if(vi->Q() > maxDistortion) {
-				maxDistortion = vi->Q();
+			} else if(compare(vi->Q(), bestDistortion, par.getBool("max"))) {
+				bestDistortion = vi->Q();
 				vertexIndex = vi->Index();
 			}
 		}
 
-		std::cout << vertexIndex << std::endl;
-
 		if (bnd.empty())
 			throw MLException(
 				"Cut can be applied only on meshes that have a boundary.");
-
-		m->cm.vert[vertexIndex].C() = vcg::Color4b(0, 255, 0, 255);
 
 		// Calculate for each vertex of m the distance of border. Inside parents is stored the path fo boundary from each vertex.
 	    CMeshO::PerVertexAttributeHandle<CMeshO::VertexPointer> parents;
@@ -394,6 +407,9 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			vcg::tri::CutMeshAlongSelectedFaceEdges<CMeshO>(m->cm);
 		}
 
+		if (par.getBool("remove_unreference_verts"))
+			tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, true);
+
 		break;
 	}
 	case FP_TOPOLOGICAL_CUT : {
@@ -408,11 +424,16 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, false))
 			throw MLException(
-				"Topologoca cut can be applied only on meshes that "
+				"Topological cut can be applied only on meshes that "
 		         "have no unreference vertex");
 
+		if(tri::Clean<CMeshO>::CountHoles(m->cm) < 2)
+			throw MLException(
+				"Topological cut can be applied only on meshes that "
+		         "have 2 or more holes");
+
 		CutMesh polyline, cm;
-		vcg::tri::Append<CutMesh,CMeshO>::MeshCopy(cm,m->cm);
+		vcg::tri::Append<CutMesh,CMeshO>::MeshCopy(cm, m->cm);
 
 		srand(time(nullptr));
 		vcg::tri::CutTree<CutMesh> ct(cm);
@@ -428,6 +449,10 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			vcg::tri::CutMeshAlongSelectedFaceEdges<CutMesh>(cm);
 		}
 		vcg::tri::Append<CMeshO,CutMesh>::MeshCopy(m->cm,cm);
+
+		if (par.getBool("remove_unreference_verts"))
+			tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, true);
+			
 		break;
 	}
 	default :

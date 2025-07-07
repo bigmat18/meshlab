@@ -38,7 +38,7 @@ public:
 	enum FileterIds {
 		FP_HARMONIC_PARAM,
 		FP_LEAST_SQUARES_PARAM,
-		FP_MAX_DISTORTION_CUT,
+		FP_DISTORTION_CUT,
         FP_TOPOLOGICAL_CUT};
 
 	FilterParametrizationPlugin();

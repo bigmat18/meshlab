@@ -415,8 +415,6 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 	case FP_TOPOLOGICAL_CUT : {
 		MeshModel *m = md.mm();
 		m->updateDataMask(
-			MeshModel::MM_WEDGTEXCOORD | 
-			MeshModel::MM_VERTTEXCOORD |
 			MeshModel::MM_VERTFACETOPO | 
 			MeshModel::MM_FACEFACETOPO | 
 			MeshModel::MM_FACEMARK
@@ -427,15 +425,22 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 				"Topological cut can be applied only on meshes that "
 		         "have no unreference vertex");
 
-		if(tri::Clean<CMeshO>::CountHoles(m->cm) < 2)
-			throw MLException(
-				"Topological cut can be applied only on meshes that "
-		         "have 2 or more holes");
+		int connectedComponentsNum = tri::Clean<CMeshO>::CountConnectedComponents(m->cm);
+		int holeNum = tri::Clean<CMeshO>::CountHoles(m->cm);
+		int edgeNum = 0, edgeBorderNum = 0, edgeNonManifNum = 0;
+		tri::Clean<CMeshO>::CountEdgeNum(m->cm, edgeNum, edgeBorderNum, edgeNonManifNum);
+		int unrefVertNum = tri::Clean<CMeshO>::CountUnreferencedVertex(m->cm);
+		int genus = tri::Clean<CMeshO>::MeshGenus(m->cm.vn - unrefVertNum, edgeNum, m->cm.fn, holeNum, connectedComponentsNum);
+
+		if (genus == 0 && connectedComponentsNum == 1 && holeNum == 1)
+			throw MLException("Mesh was already homeomorfic to a disk no need of cut.");
 
 		CutMesh polyline, cm;
 		vcg::tri::Append<CutMesh,CMeshO>::MeshCopy(cm, m->cm);
 
 		srand(time(nullptr));
+
+		tri::UpdateBounding<CutMesh>::Box(cm);
 		vcg::tri::CutTree<CutMesh> ct(cm);
 		ct.Build(polyline, rand() % cm.fn);
 
@@ -452,7 +457,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 		if (par.getBool("remove_unreference_verts"))
 			tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, true);
-			
+						
 		break;
 	}
 	default :

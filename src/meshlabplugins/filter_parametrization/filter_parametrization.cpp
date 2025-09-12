@@ -333,6 +333,13 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_FACEMARK 
 		);
 
+		// check if there are non-manifold faces
+		if(tri::Clean<CMeshO>::RemoveNonManifoldFace(m->cm, false) > 0)
+			throw MLException(
+				"Topological cut can be applied only on meshes that "
+		         "have no non-manifold faces");
+		
+		// check if there are unreferenced vertex
 		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, false))
 			throw MLException(
 				"Max distortion cut can be applied only on meshes that "
@@ -393,7 +400,6 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		// store each edge route to boundary from max distortion vertex
 		CMeshO polyline;
 		while (parents[vertexIndex]->Index() != vertexIndex) {
-			// std::cout << vertexIndex << " " << parents[vertexIndex]->Index() << std::endl;
 			vcg::tri::Allocator<CMeshO>::AddEdge(polyline,m->cm.vert[vertexIndex].P(), parents[vertexIndex]->P());
 			vertexIndex = parents[vertexIndex]->Index();
 		}; 
@@ -407,6 +413,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			vcg::tri::CutMeshAlongSelectedFaceEdges<CMeshO>(m->cm);
 		}
 
+		// eventually remove unreferenced vertex
 		if (par.getBool("remove_unreference_verts"))
 			tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, true);
 
@@ -420,26 +427,42 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_FACEMARK
 		);
 
-		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, false))
+		// check if there are non-manifold faces
+		if(tri::Clean<CMeshO>::RemoveNonManifoldFace(m->cm, false) > 0)
+			throw MLException(
+				"Topological cut can be applied only on meshes that "
+		         "have no non-manifold faces");
+
+		// check if there are unreferenced vertex
+		if(tri::Clean<CMeshO>::RemoveUnreferencedVertex(m->cm, false))
 			throw MLException(
 				"Topological cut can be applied only on meshes that "
 		         "have no unreference vertex");
-
+				 
+		// check if the mesh is connected
 		int connectedComponentsNum = tri::Clean<CMeshO>::CountConnectedComponents(m->cm);
+		if(connectedComponentsNum > 1) 
+			throw MLException(
+					"Topological cut can be applied only on meshes that "
+					"have only one connected components");
+
+		// check if the mesh is already homeomorphic to a disk
 		int holeNum = tri::Clean<CMeshO>::CountHoles(m->cm);
+		int unrefVertNum = tri::Clean<CMeshO>::CountUnreferencedVertex(m->cm);
 		int edgeNum = 0, edgeBorderNum = 0, edgeNonManifNum = 0;
 		tri::Clean<CMeshO>::CountEdgeNum(m->cm, edgeNum, edgeBorderNum, edgeNonManifNum);
-		int unrefVertNum = tri::Clean<CMeshO>::CountUnreferencedVertex(m->cm);
-		int genus = tri::Clean<CMeshO>::MeshGenus(m->cm.vn - unrefVertNum, edgeNum, m->cm.fn, holeNum, connectedComponentsNum);
 
-		if (genus == 0 && connectedComponentsNum == 1 && holeNum == 1)
+		int genus = tri::Clean<CMeshO>::MeshGenus(m->cm.vn - unrefVertNum, edgeNum, m->cm.fn, holeNum, connectedComponentsNum);
+		if (genus == 0 && holeNum == 1)
 			throw MLException("Mesh was already homeomorfic to a disk no need of cut.");
 
+		
 		CutMesh polyline, cm;
 		vcg::tri::Append<CutMesh,CMeshO>::MeshCopy(cm, m->cm);
 
 		srand(time(nullptr));
 
+		// build the cut tree
 		tri::UpdateBounding<CutMesh>::Box(cm);
 		vcg::tri::CutTree<CutMesh> ct(cm);
 		ct.Build(polyline, rand() % cm.fn);
@@ -447,6 +470,7 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		if(polyline.EN() == 0)
 			throw MLException("Mesh was already homeomorfic to a disk no need of cut. Exiting.");
 
+		// cut the mesh along the tree
 		vcg::tri::CoM<CutMesh> cc(cm);
 		cc.Init();
 		if(cc.TagFaceEdgeSelWithPolyLine(polyline)) {

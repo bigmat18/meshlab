@@ -190,6 +190,7 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 		parlst.addParam(RichBool("remove_unreference_verts", true, "Remove unreference vertex after computation" ));
 
 		parlst.addParam(RichBool("max", true, "If true gets max value, else the min" ));
+		parlst.addParam(RichBool("apply_lscm", false, "Apply LSCM Parametrization" ));
 		break;
 	}
 	case FP_TOPOLOGICAL_CUT:
@@ -334,9 +335,11 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_VERTQUALITY | 
 			MeshModel::MM_VERTFACETOPO | 
 			MeshModel::MM_FACEFACETOPO | 
-			MeshModel::MM_FACEMARK |
-			MeshModel::MM_VERTCOLOR
+			MeshModel::MM_FACEMARK		
 		);
+
+		m->cm.vert.EnableCurvatureDir();
+		m->cm.face.EnableCurvatureDir();
 
 		// check if there are non-manifold faces
 		if(tri::Clean<CMeshO>::RemoveNonManifoldFace(m->cm, false) > 0)
@@ -355,15 +358,15 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 		switch (par.getEnum("distortion_fun"))
 		{
 			case 0: 
-				type = vcg::tri::Distortion<CMeshO, true>::DistType::AreaDist; break;
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::AreaDist; break; // Min
 			case 1: 
-				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeDist; break;
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeDist; break; // Min
 			case 2: 
-				type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break;
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break; // Min
 			case 3: 
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeComprStretch; break;
 			case 4: 
-				type = vcg::tri::Distortion<CMeshO, true>::DistType::CrossDist; break;
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::CrossDist; break; // Min
 			case 5: 
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::L2Stretch; break;
 			case 6: 
@@ -379,29 +382,31 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			throw MLException("This metric need Texture Coordinate");
 
 		// Calculate distorion for each face and vertex
-		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type);
+		vcg::tri::Distortion<CMeshO, true>::SetQasDistorsion(m->cm, type, false);
 		vcg::tri::UpdateFlags<CMeshO>::VertexBorderFromNone(m->cm);
 		vcg::tri::UpdateQuality<CMeshO>::VertexNormalize(m->cm);
+		
+		// get the boundary vertex
+		std::vector<CMeshO::VertexPointer> boundary;
+		for (auto vi = m->cm.vert.begin(); vi != m->cm.vert.end(); ++vi) {
+			if(vi->IsB()) boundary.push_back(&(*vi));	
+		}
+
+		// TODO: Add Geodesic Distace option to boundary like constraint
 
 		// search the vertex with max distortion value that there is not boundary
 		float bestDistortion = m->cm.vert[0].Q();
 		int vertexIndex = 0;
-		std::vector<CMeshO::VertexPointer> bnd;
 
 		auto compare = [](auto a, auto b, bool val) { return val ? (a > b) : (a < b); };
 		for (auto vi = m->cm.vert.begin(); vi != m->cm.vert.end(); ++vi) {
-			// std::cout << vi->Q() << std::endl;
-			// vi->C() = vcg::Color4b(static_cast<unsigned char>(vi->Q() * 255), 0, 0, 255);
-			if(vi->IsB()) {
-				bnd.push_back(&(*vi));	
-			} else if(compare(vi->Q(), bestDistortion, par.getBool("max"))) {
-				// std::cout << "New best distortion found: " << vi->Q() << std::endl;
+			if(!vi->IsB() && compare(vi->Q(), bestDistortion, par.getBool("max"))) {
 				bestDistortion = vi->Q();
 				vertexIndex = vi->Index();
 			}
 		}
 
-		if (bnd.empty())
+		if (boundary.empty())
 			throw MLException(
 				"Cut can be applied only on meshes that have a boundary.");
 
@@ -411,14 +416,17 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 		vcg::tri::EuclideanDistance<CMeshO> dd;
     	tri::UpdateQuality<CMeshO>::VertexConstant(m->cm,0);
-		vcg::tri::Geodesic<CMeshO>::Compute(m->cm, bnd, dd, std::numeric_limits<CMeshO::ScalarType>::max(), nullptr, nullptr, &parents);
+		vcg::tri::Geodesic<CMeshO>::Compute(m->cm, boundary, dd, std::numeric_limits<CMeshO::ScalarType>::max(), nullptr, nullptr, &parents);
 
 		// store each edge route to boundary from max distortion vertex
 		CMeshO polyline;
+		int cutLengthCounter = 0;
 		while (parents[vertexIndex]->Index() != vertexIndex) {
 			vcg::tri::Allocator<CMeshO>::AddEdge(polyline,m->cm.vert[vertexIndex].P(), parents[vertexIndex]->P());
 			vertexIndex = parents[vertexIndex]->Index();
+			cutLengthCounter++;
 		}; 
+		log("Cut length: ", std::to_string(cutLengthCounter).c_str());
 		
 		// generate a cut for polyline
 		vcg::tri::CoM<CMeshO> cc(m->cm);
@@ -431,7 +439,43 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 		// eventually remove unreferenced vertex
 		if (par.getBool("remove_unreference_verts"))
-			tri::Clean<CMeshO>::RemoveUnreferencedVertex(md.mm()->cm, true);
+			tri::Clean<CMeshO>::RemoveUnreferencedVertex(m->cm, true);
+
+
+		if (par.getBool("apply_lscm")) {
+			tri::Allocator<CMeshO>::CompactVertexVector(m->cm);
+
+			EigenMatrixX3m v = meshlab::vertexMatrix(m->cm);
+			Eigen::MatrixX3d verts = v.cast<double>();
+			Eigen::MatrixX3i faces = meshlab::faceMatrix(m->cm);
+			Eigen::VectorXi bnd, boundaryPoints(2, 1);
+
+			Eigen::MatrixXd V_uv;
+
+			igl::boundary_loop(faces,bnd);
+			boundaryPoints(0) = bnd(0);
+			boundaryPoints(1) = bnd(bnd.size()/2);
+
+			Eigen::MatrixXd bc(2,2);
+			bc<<0,0,1,1;
+
+			// LSCM parametrization
+			bool ret = igl::lscm(verts,faces,boundaryPoints,bc,V_uv);
+			if(!ret) log("Error LSCM Parametrization");
+			
+			unsigned int i = 0;
+			for (auto& v : m->cm.vert){
+				v.T().u() =V_uv(i, 0);
+				v.T().v() =V_uv(i, 1);
+				i++;
+			}
+
+			vcg::tri::UV_Utils<CMeshO>::PerVertScaleToUnitSpace(m->cm);
+
+			m->updateDataMask(MeshModel::MM_WEDGTEXCOORD);
+			tri::UpdateTexture<CMeshO>::WedgeTexFromVertexTex(m->cm);	
+			log("Applying LSCM Parametrization");
+		}
 
 		break;
 	}

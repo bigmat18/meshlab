@@ -181,6 +181,10 @@ RichParameterList FilterParametrizationPlugin::initParameterList(const QAction *
 		metrics.push_back("EdgeDist");
 		metrics.push_back("AngleDist");
 		metrics.push_back("EdgeComprStretch");
+		metrics.push_back("CrossDist");
+		metrics.push_back("L2Stretch");
+		metrics.push_back("LInfStretch");
+		metrics.push_back("ARAPDist");
 
 		parlst.addParam(RichEnum("distortion_fun", 0, metrics, tr("Distortion Fun:"), tr("Choose a metric to compute cut.")));
 		parlst.addParam(RichBool("remove_unreference_verts", true, "Remove unreference vertex after computation" ));
@@ -330,7 +334,8 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 			MeshModel::MM_VERTQUALITY | 
 			MeshModel::MM_VERTFACETOPO | 
 			MeshModel::MM_FACEFACETOPO | 
-			MeshModel::MM_FACEMARK 
+			MeshModel::MM_FACEMARK |
+			MeshModel::MM_VERTCOLOR
 		);
 
 		// check if there are non-manifold faces
@@ -357,6 +362,14 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::AngleDist; break;
 			case 3: 
 				type = vcg::tri::Distortion<CMeshO, true>::DistType::EdgeComprStretch; break;
+			case 4: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::CrossDist; break;
+			case 5: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::L2Stretch; break;
+			case 6: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::LInfStretch; break;
+			case 7: 
+				type = vcg::tri::Distortion<CMeshO, true>::DistType::ARAPDist; break;
 			default:
 				throw MLException("Wrong dist fun selected");
 		}
@@ -377,9 +390,12 @@ std::map<std::string, QVariant> FilterParametrizationPlugin::applyFilter(
 
 		auto compare = [](auto a, auto b, bool val) { return val ? (a > b) : (a < b); };
 		for (auto vi = m->cm.vert.begin(); vi != m->cm.vert.end(); ++vi) {
+			// std::cout << vi->Q() << std::endl;
+			// vi->C() = vcg::Color4b(static_cast<unsigned char>(vi->Q() * 255), 0, 0, 255);
 			if(vi->IsB()) {
 				bnd.push_back(&(*vi));	
 			} else if(compare(vi->Q(), bestDistortion, par.getBool("max"))) {
+				// std::cout << "New best distortion found: " << vi->Q() << std::endl;
 				bestDistortion = vi->Q();
 				vertexIndex = vi->Index();
 			}
